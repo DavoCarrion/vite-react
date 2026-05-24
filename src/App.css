@@ -1,42 +1,393 @@
-#root {
-  max-width: 1280px;
-  margin: 0 auto;
-  padding: 2rem;
-  text-align: center;
-}
+import React, { useState, useEffect } from 'react';
+import { Shield, Sword, Book, User, Share2, Download, Heart } from 'lucide-react';
 
-.logo {
-  height: 6em;
-  padding: 1.5em;
-  will-change: filter;
-  transition: filter 300ms;
-}
-.logo:hover {
-  filter: drop-shadow(0 0 2em #646cffaa);
-}
-.logo.react:hover {
-  filter: drop-shadow(0 0 2em #61dafbaa);
-}
+// --- CONSTANTS ---
+const SKILLS = [
+  { id: 'acrobatics', name: 'Acrobacias', stat: 'dex' },
+  { id: 'athletics', name: 'Atletismo', stat: 'str' },
+  { id: 'arcana', name: 'C. Arcano', stat: 'int' },
+  { id: 'deception', name: 'Engaño', stat: 'cha' },
+  { id: 'history', name: 'Historia', stat: 'int' },
+  { id: 'performance', name: 'Interpretación', stat: 'cha' },
+  { id: 'intimidation', name: 'Intimidación', stat: 'cha' },
+  { id: 'investigation', name: 'Investigación', stat: 'int' },
+  { id: 'sleightOfHand', name: 'Juego de Manos', stat: 'dex' },
+  { id: 'medicine', name: 'Medicina', stat: 'wis' },
+  { id: 'nature', name: 'Naturaleza', stat: 'int' },
+  { id: 'perception', name: 'Percepción', stat: 'wis' },
+  { id: 'insight', name: 'Perspicacia', stat: 'wis' },
+  { id: 'persuasion', name: 'Persuasión', stat: 'cha' },
+  { id: 'religion', name: 'Religión', stat: 'int' },
+  { id: 'stealth', name: 'Sigilo', stat: 'dex' },
+  { id: 'survival', name: 'Supervivencia', stat: 'wis' },
+  { id: 'animalHandling', name: 'T. con Animales', stat: 'wis' }
+];
 
-@keyframes logo-spin {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
-}
+const STATS = [
+  { id: 'str', name: 'Fuerza' },
+  { id: 'dex', name: 'Destreza' },
+  { id: 'con', name: 'Constitución' },
+  { id: 'int', name: 'Inteligencia' },
+  { id: 'wis', name: 'Sabiduría' },
+  { id: 'cha', name: 'Carisma' }
+];
 
-@media (prefers-reduced-motion: no-preference) {
-  a:nth-of-type(2) .logo {
-    animation: logo-spin infinite 20s linear;
-  }
-}
+const DEFAULT_CHARACTER = {
+  info: { name: "Nuevo Personaje", classLevel: "Guerrero 1", level: 1, background: "", player: "", race: "", alignment: "", xp: "" },
+  stats: { str: 10, dex: 10, con: 10, int: 10, wis: 10, cha: 10 },
+  saves: { str: false, dex: false, con: false, int: false, wis: false, cha: false },
+  skills: Object.fromEntries(SKILLS.map(s => [s.id, false])),
+  combat: { ac: 10, initiativeMod: 0, speed: 30, hpMax: 10, hpCurrent: 10, hpTemp: 0, hitDice: "1d10", deathSuccess: 0, deathFail: 0 },
+  attacks: [{ name: "Espada Larga", bonus: "+5", damage: "1d8+3 Cortante" }, { name: "", bonus: "", damage: "" }, { name: "", bonus: "", damage: "" }],
+  magic: { spellClass: "", spellAbility: "int", spellSaveDC: 10, spellAtkBonus: 0, slots: "Nivel 1: 2 espacios", spellsKnown: "" },
+  equipment: "Armadura de cuero, mochila de explorador...",
+  traits: "Rasgos raciales y de clase aquí...",
+  bio: { appearance: "", backstory: "", allies: "" }
+};
 
-.card {
-  padding: 2em;
-}
+export default function App() {
+  const [character, setCharacter] = useState(DEFAULT_CHARACTER);
+  const [activeTab, setActiveTab] = useState('stats');
+  const [loadIdInput, setLoadIdInput] = useState('');
+  const [statusMsg, setStatusMsg] = useState({ text: '', type: '' });
+  const [isLoaded, setIsLoaded] = useState(false);
 
-.read-the-docs {
-  color: #888;
+  // 1. Load from LocalStorage on mount
+  useEffect(() => {
+    const saved = localStorage.getItem('dnd-character-save');
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        setCharacter({ ...DEFAULT_CHARACTER, ...parsed });
+      } catch (e) {
+        console.error("Error loading local save", e);
+      }
+    }
+    setIsLoaded(true);
+  }, []);
+
+  // 2. Save to LocalStorage on change
+  useEffect(() => {
+    if (isLoaded) {
+      localStorage.setItem('dnd-character-save', JSON.stringify(character));
+    }
+  }, [character, isLoaded]);
+
+  // Handlers for Export/Import
+  const showStatus = (text, type = 'success') => {
+    setStatusMsg({ text, type });
+    setTimeout(() => setStatusMsg({ text: '', type: '' }), 3000);
+  };
+
+  const handleExport = () => {
+    try {
+      const charString = JSON.stringify(character);
+      // Encode to base64 to make it a copy-pasteable string
+      const encoded = btoa(encodeURIComponent(charString));
+      
+      // Fallback copy to clipboard
+      const textArea = document.createElement("textarea");
+      textArea.value = encoded;
+      document.body.appendChild(textArea);
+      textArea.select();
+      document.execCommand("copy");
+      document.body.removeChild(textArea);
+      
+      showStatus('¡Código copiado al portapapeles!');
+    } catch (e) {
+      showStatus('Error al exportar', 'error');
+    }
+  };
+
+  const handleImport = () => {
+    if (!loadIdInput.trim()) {
+      showStatus('Pega un código primero', 'error');
+      return;
+    }
+    try {
+      const decoded = decodeURIComponent(atob(loadIdInput.trim()));
+      const parsed = JSON.parse(decoded);
+      setCharacter({ ...DEFAULT_CHARACTER, ...parsed });
+      setLoadIdInput('');
+      showStatus('¡Personaje cargado con éxito!');
+    } catch (e) {
+      showStatus('Código inválido o corrupto', 'error');
+    }
+  };
+
+  const updateField = (category, field, value) => {
+    setCharacter(prev => ({ ...prev, [category]: { ...prev[category], [field]: value } }));
+  };
+
+  const updateNestedField = (category, index, field, value) => {
+    setCharacter(prev => {
+      const newArray = [...prev[category]];
+      newArray[index] = { ...newArray[index], [field]: value };
+      return { ...prev, [category]: newArray };
+    });
+  };
+
+  // Math Helpers
+  const calcMod = (score) => Math.floor((parseInt(score) || 10) - 10) / 2;
+  const formatMod = (num) => {
+    const rounded = Math.floor(num);
+    return rounded >= 0 ? `+${rounded}` : `${rounded}`;
+  };
+  const profBonus = Math.ceil((parseInt(character.info.level) || 1) / 4) + 1;
+
+  // --- UI COMPONENTS ---
+
+  const renderTopBar = () => (
+    <div className="bg-slate-900 text-white p-4 shadow-md flex flex-col md:flex-row justify-between items-center gap-4">
+      <div className="flex-1 w-full grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div>
+          <label className="text-xs text-slate-400 uppercase tracking-wider block">Nombre</label>
+          <input type="text" value={character.info.name} onChange={e => updateField('info', 'name', e.target.value)} className="bg-transparent border-b border-slate-600 focus:border-red-500 outline-none w-full text-xl font-bold text-white pb-1"/>
+        </div>
+        <div>
+          <label className="text-xs text-slate-400 uppercase tracking-wider block">Clase y Nivel</label>
+          <input type="text" value={character.info.classLevel} onChange={e => updateField('info', 'classLevel', e.target.value)} className="bg-transparent border-b border-slate-600 focus:border-red-500 outline-none w-full text-white pb-1"/>
+        </div>
+        <div>
+          <label className="text-xs text-slate-400 uppercase tracking-wider block">Raza</label>
+          <input type="text" value={character.info.race} onChange={e => updateField('info', 'race', e.target.value)} className="bg-transparent border-b border-slate-600 focus:border-red-500 outline-none w-full text-white pb-1"/>
+        </div>
+        <div>
+          <label className="text-xs text-slate-400 uppercase tracking-wider block">Nivel (Numérico)</label>
+          <input type="number" value={character.info.level} onChange={e => updateField('info', 'level', e.target.value)} className="bg-slate-800 border border-slate-600 rounded px-2 py-1 w-full text-white focus:outline-none focus:border-red-500" min="1" max="20"/>
+        </div>
+      </div>
+      
+      <div className="flex flex-col gap-2 min-w-[280px] bg-slate-800 p-3 rounded-lg border border-slate-700">
+        <div className="flex justify-between items-center mb-1">
+           <span className="text-xs text-slate-400 uppercase font-bold">Compartir Personaje</span>
+           <button onClick={handleExport} className="flex items-center gap-1 text-xs bg-slate-700 hover:bg-slate-600 px-2 py-1 rounded transition-colors text-white">
+             <Share2 size={12} /> Copiar Código
+           </button>
+        </div>
+        <div className="flex gap-2">
+          <input 
+            type="text" 
+            placeholder="Pega un código aquí..." 
+            value={loadIdInput}
+            onChange={e => setLoadIdInput(e.target.value)}
+            className="bg-slate-900 border border-slate-600 rounded px-2 py-1 w-full text-xs text-white focus:outline-none focus:border-red-500"
+          />
+          <button 
+            onClick={handleImport}
+            className="bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded text-xs font-semibold transition-colors flex items-center gap-1"
+          >
+            <Download size={14}/> Cargar
+          </button>
+        </div>
+        {statusMsg.text && (
+          <div className={`text-xs text-center font-bold ${statusMsg.type === 'error' ? 'text-red-400' : 'text-emerald-400'}`}>
+            {statusMsg.text}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+
+  const renderTabs = () => (
+    <div className="flex overflow-x-auto border-b border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-900">
+      {[
+        { id: 'stats', icon: User, label: 'Estadísticas & Tiradas' },
+        { id: 'combat', icon: Sword, label: 'Combate & Magia' },
+        { id: 'inventory', icon: Shield, label: 'Equipo & Rasgos' },
+        { id: 'bio', icon: Book, label: 'Historia' },
+      ].map(tab => (
+        <button
+          key={tab.id}
+          onClick={() => setActiveTab(tab.id)}
+          className={`flex items-center gap-2 px-6 py-4 text-sm font-semibold transition-colors border-b-4 whitespace-nowrap ${
+            activeTab === tab.id ? 'border-red-600 text-red-600 dark:text-red-400 bg-white dark:bg-slate-800' : 'border-transparent text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800'
+          }`}
+        >
+          <tab.icon size={18} /> {tab.label}
+        </button>
+      ))}
+    </div>
+  );
+
+  const renderStatsTab = () => (
+    <div className="p-4 md:p-6 grid grid-cols-1 md:grid-cols-12 gap-6 max-w-7xl mx-auto">
+      {/* Columna Izquierda: Atributos base */}
+      <div className="md:col-span-3 flex flex-col gap-4">
+        <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl p-4 text-center shadow-sm">
+          <div className="text-sm font-bold text-red-800 dark:text-red-300 uppercase tracking-widest mb-1">Bonus de Competencia</div>
+          <div className="text-4xl font-black text-red-600 dark:text-red-400">{formatMod(profBonus)}</div>
+        </div>
+
+        {STATS.map(stat => {
+          const score = character.stats[stat.id];
+          const mod = calcMod(score);
+          return (
+            <div key={stat.id} className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-4 flex flex-col items-center relative shadow-sm">
+              <span className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">{stat.name}</span>
+              <div className="text-5xl font-black text-slate-800 dark:text-slate-100 mb-4">{formatMod(mod)}</div>
+              <div className="absolute -bottom-3 bg-slate-100 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-full px-4 py-1">
+                <input type="number" value={score} onChange={e => updateField('stats', stat.id, e.target.value)} className="w-10 text-center bg-transparent font-bold focus:outline-none dark:text-white"/>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Columna Central: Salvaciones */}
+      <div className="md:col-span-4 flex flex-col gap-4">
+        <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-5 shadow-sm">
+          <h3 className="text-lg font-black text-slate-800 dark:text-white border-b border-slate-200 dark:border-slate-700 pb-2 mb-4 uppercase tracking-wider">
+            Tiradas de Salvación
+          </h3>
+          <p className="text-xs text-slate-500 mb-4">Marca la casilla si eres competente.</p>
+          
+          <div className="flex flex-col gap-3">
+            {STATS.map(stat => {
+              const isProficient = character.saves[stat.id];
+              const totalMod = calcMod(character.stats[stat.id]) + (isProficient ? profBonus : 0);
+              return (
+                <div key={`save-${stat.id}`} className="flex items-center justify-between p-2 hover:bg-slate-50 dark:hover:bg-slate-700/50 rounded-lg group">
+                  <div className="flex items-center gap-3">
+                    <input type="checkbox" checked={isProficient} onChange={e => updateField('saves', stat.id, e.target.checked)} className="w-5 h-5 rounded border-slate-300 text-red-600 focus:ring-red-500 cursor-pointer"/>
+                    <span className={`font-semibold ${isProficient ? 'text-slate-900 dark:text-white' : 'text-slate-600 dark:text-slate-400'}`}>{stat.name}</span>
+                  </div>
+                  <div className={`text-xl font-bold w-12 text-center rounded ${isProficient ? 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300' : 'text-slate-600 dark:text-slate-300'}`}>{formatMod(totalMod)}</div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+
+      {/* Columna Derecha: Habilidades */}
+      <div className="md:col-span-5 flex flex-col gap-4">
+        <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-5 shadow-sm">
+          <h3 className="text-lg font-black text-slate-800 dark:text-white border-b border-slate-200 dark:border-slate-700 pb-2 mb-4 uppercase tracking-wider">
+            Habilidades
+          </h3>
+          <div className="grid grid-cols-1 gap-2">
+            {SKILLS.map(skill => {
+              const isProficient = character.skills[skill.id];
+              const totalMod = calcMod(character.stats[skill.stat]) + (isProficient ? profBonus : 0);
+              return (
+                <div key={skill.id} className="flex items-center justify-between p-1.5 hover:bg-slate-50 dark:hover:bg-slate-700/50 rounded-lg group">
+                  <div className="flex items-center gap-3">
+                    <input type="checkbox" checked={isProficient} onChange={e => updateField('skills', skill.id, e.target.checked)} className="w-4 h-4 rounded border-slate-300 text-red-600 focus:ring-red-500 cursor-pointer"/>
+                    <div>
+                      <span className={`text-sm font-semibold ${isProficient ? 'text-slate-900 dark:text-white' : 'text-slate-600 dark:text-slate-400'}`}>{skill.name}</span>
+                      <span className="text-xs text-slate-400 ml-2">({STATS.find(s=>s.id === skill.stat).name.substring(0,3)})</span>
+                    </div>
+                  </div>
+                  <div className={`text-lg font-bold w-10 text-center rounded ${isProficient ? 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300' : 'text-slate-600 dark:text-slate-300'}`}>{formatMod(totalMod)}</div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+
+  const renderCombatTab = () => (
+    <div className="p-4 md:p-6 max-w-5xl mx-auto flex flex-col gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div className="flex gap-4 justify-between bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm">
+          <div className="flex flex-col items-center">
+            <span className="text-xs font-bold text-slate-500 uppercase">Armadura</span>
+            <Shield className="text-slate-300 dark:text-slate-600 absolute opacity-20" size={60} />
+            <input type="number" value={character.combat.ac} onChange={e => updateField('combat', 'ac', e.target.value)} className="text-3xl font-black w-16 text-center bg-transparent z-10 dark:text-white focus:outline-none"/>
+          </div>
+          <div className="flex flex-col items-center">
+            <span className="text-xs font-bold text-slate-500 uppercase">Iniciativa</span>
+            <div className="text-3xl font-black text-slate-800 dark:text-white">{formatMod(calcMod(character.stats.dex) + Number(character.combat.initiativeMod))}</div>
+            <div className="flex items-center text-xs mt-1 gap-1 text-slate-400">
+              Bonus: <input type="number" value={character.combat.initiativeMod} onChange={e => updateField('combat', 'initiativeMod', e.target.value)} className="w-10 border rounded px-1 bg-transparent dark:border-slate-600" />
+            </div>
+          </div>
+          <div className="flex flex-col items-center">
+            <span className="text-xs font-bold text-slate-500 uppercase">Velocidad</span>
+            <input type="number" value={character.combat.speed} onChange={e => updateField('combat', 'speed', e.target.value)} className="text-3xl font-black w-16 text-center bg-transparent dark:text-white focus:outline-none"/>
+          </div>
+        </div>
+
+        <div className="md:col-span-2 bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm flex flex-col gap-4">
+          <div className="flex justify-between items-center text-sm font-bold text-slate-500 uppercase">
+            <span>Puntos de Golpe</span>
+            <div className="flex gap-2 items-center">
+              <span>Máximo:</span>
+              <input type="number" value={character.combat.hpMax} onChange={e => updateField('combat', 'hpMax', e.target.value)} className="w-16 border rounded px-2 py-1 bg-slate-50 dark:bg-slate-900 dark:border-slate-600 dark:text-white"/>
+            </div>
+          </div>
+          <div className="flex items-center justify-center gap-4">
+            <Heart className="text-red-500 fill-red-500" size={40} />
+            <input type="number" value={character.combat.hpCurrent} onChange={e => updateField('combat', 'hpCurrent', e.target.value)} className="text-5xl font-black w-24 text-center bg-transparent border-b-2 border-slate-200 focus:border-red-500 dark:border-slate-600 outline-none dark:text-white"/>
+          </div>
+          <div className="flex justify-between text-sm">
+            <div className="flex items-center gap-2">
+              <span className="text-slate-500">Temporales:</span>
+              <input type="number" value={character.combat.hpTemp} onChange={e => updateField('combat', 'hpTemp', e.target.value)} className="w-16 border rounded px-2 py-1 bg-slate-50 dark:bg-slate-900 dark:border-slate-600 dark:text-white"/>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-slate-500">Dados Golpe:</span>
+              <input type="text" value={character.combat.hitDice} onChange={e => updateField('combat', 'hitDice', e.target.value)} className="w-20 border rounded px-2 py-1 bg-slate-50 dark:bg-slate-900 dark:border-slate-600 dark:text-white"/>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-5 shadow-sm">
+         <h3 className="text-lg font-black text-slate-800 dark:text-white border-b border-slate-200 dark:border-slate-700 pb-2 mb-4 uppercase tracking-wider">Ataques y Conjuros</h3>
+          <div className="grid grid-cols-12 gap-2 text-xs font-bold text-slate-400 uppercase mb-2 px-2">
+            <div className="col-span-5">Nombre</div>
+            <div className="col-span-3 text-center">Bonus</div>
+            <div className="col-span-4">Daño / Tipo</div>
+          </div>
+          {character.attacks.map((atk, index) => (
+            <div key={index} className="grid grid-cols-12 gap-2 mb-2">
+              <input type="text" value={atk.name} onChange={e => updateNestedField('attacks', index, 'name', e.target.value)} className="col-span-5 border rounded px-3 py-2 bg-slate-50 dark:bg-slate-900 dark:border-slate-600 dark:text-white w-full outline-none focus:ring-1 focus:ring-red-500"/>
+              <input type="text" value={atk.bonus} onChange={e => updateNestedField('attacks', index, 'bonus', e.target.value)} className="col-span-3 border rounded px-3 py-2 text-center font-bold bg-slate-50 dark:bg-slate-900 dark:border-slate-600 dark:text-white w-full outline-none focus:ring-1 focus:ring-red-500"/>
+              <input type="text" value={atk.damage} onChange={e => updateNestedField('attacks', index, 'damage', e.target.value)} className="col-span-4 border rounded px-3 py-2 bg-slate-50 dark:bg-slate-900 dark:border-slate-600 dark:text-white w-full outline-none focus:ring-1 focus:ring-red-500"/>
+            </div>
+          ))}
+      </div>
+    </div>
+  );
+
+  const renderInventoryTab = () => (
+    <div className="p-4 md:p-6 max-w-5xl mx-auto grid grid-cols-1 md:grid-cols-2 gap-6">
+      <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-5 shadow-sm flex flex-col">
+        <h3 className="text-lg font-black text-slate-800 dark:text-white border-b border-slate-200 dark:border-slate-700 pb-2 mb-4 uppercase tracking-wider">Equipo</h3>
+        <textarea value={character.equipment} onChange={e => setCharacter({...character, equipment: e.target.value})} className="flex-1 min-h-[300px] border rounded p-3 bg-slate-50 dark:bg-slate-900 dark:border-slate-600 dark:text-white w-full outline-none resize-y"></textarea>
+      </div>
+      <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-5 shadow-sm flex flex-col">
+        <h3 className="text-lg font-black text-slate-800 dark:text-white border-b border-slate-200 dark:border-slate-700 pb-2 mb-4 uppercase tracking-wider">Rasgos</h3>
+        <textarea value={character.traits} onChange={e => setCharacter({...character, traits: e.target.value})} className="flex-1 min-h-[300px] border rounded p-3 bg-slate-50 dark:bg-slate-900 dark:border-slate-600 dark:text-white w-full outline-none resize-y"></textarea>
+      </div>
+    </div>
+  );
+
+  const renderBioTab = () => (
+    <div className="p-4 md:p-6 max-w-5xl mx-auto flex flex-col gap-6">
+       <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-5 shadow-sm">
+        <h3 className="text-lg font-black text-slate-800 dark:text-white border-b border-slate-200 dark:border-slate-700 pb-2 mb-4 uppercase tracking-wider">Historia</h3>
+        <textarea value={character.bio.backstory} onChange={e => updateField('bio', 'backstory', e.target.value)} className="min-h-[200px] border rounded p-3 bg-slate-50 dark:bg-slate-900 dark:border-slate-600 dark:text-white w-full outline-none resize-y"></textarea>
+      </div>
+    </div>
+  );
+
+  if (!isLoaded) return null;
+
+  return (
+    <div className="min-h-screen bg-slate-100 dark:bg-slate-950 font-sans">
+      {renderTopBar()}
+      {renderTabs()}
+      <main className="pb-12">
+        {activeTab === 'stats' && renderStatsTab()}
+        {activeTab === 'combat' && renderCombatTab()}
+        {activeTab === 'inventory' && renderInventoryTab()}
+        {activeTab === 'bio' && renderBioTab()}
+      </main>
+    </div>
+  );
 }
